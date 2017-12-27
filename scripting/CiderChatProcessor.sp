@@ -173,6 +173,7 @@ public Action OnSayText2(UserMsg msg_id, BfRead msg, const int[] players, int pl
 
     char sFlagCopy[MAXLENGTH_FLAG];
     strcopy(sFlagCopy, sizeof(sFlagCopy), sFlag);
+    int author = iSender;
     
     Call_StartForward(fwOnChatMessagePre);
     Call_PushCellRef(iSender);
@@ -208,6 +209,12 @@ public Action OnSayText2(UserMsg msg_id, BfRead msg, const int[] players, int pl
         delete alRecipients;
         return Plugin_Continue;
     }
+    
+    bool replaceAuthor = false;
+    if(iSender == -1) {
+        replaceAuthor = true;
+        iSender = author;
+    }
 
     if(!StrEqual(sFlag, sFlagCopy) && !mapMessageFormats.GetString(sFlag, sFormat, sizeof(sFormat))) {
         delete alRecipients;
@@ -220,6 +227,7 @@ public Action OnSayText2(UserMsg msg_id, BfRead msg, const int[] players, int pl
     WritePackString(hPack, sMessage);
     WritePackString(hPack, sFlag);
     WritePackCell(hPack, alRecipients);
+    WritePackCell(hPack, replaceAuthor);
 
     WritePackString(hPack, sFormat);
     WritePackCell(hPack, bChat);
@@ -246,6 +254,8 @@ public void Frame_OnChatMessage_SayText2(DataPack data) {
     ReadPackString(data, sFlag, sizeof(sFlag));
     
     ArrayList alRecipients = ReadPackCell(data);
+    
+    bool replaceAuthor = ReadPackCell(data);
 
     char sFormat[MAXLENGTH_BUFFER];
     ReadPackString(data, sFormat, sizeof(sFormat));
@@ -260,13 +270,17 @@ public void Frame_OnChatMessage_SayText2(DataPack data) {
         return;
     }
     
+    int author = -1;
+    if(!replaceAuthor) {
+        author = iSender;
+    }
+    
     if(iResults != Plugin_Changed) {
         Format(sMessage, sizeof(sMessage), "\x01%s", sMessage);
         Format(sName, sizeof(sName), "\x03%s", sName);
     }
     
     //ReplaceString(sMessage, sizeof(sMessage), "%", "%%"); //Annoying fix.
-
     if(iResults != Plugin_Stop)  {
         int printToClients[MAXPLAYERS+1];
         int clientCount = 0;
@@ -280,26 +294,25 @@ public void Frame_OnChatMessage_SayText2(DataPack data) {
         if(clientCount != 0) {
             Handle buf = StartMessage("SayText2", printToClients, clientCount, USERMSG_RELIABLE|USERMSG_BLOCKHOOKS);
             //Handle buf = StartMessageOne("SayText2", client, USERMSG_RELIABLE|USERMSG_BLOCKHOOKS);
+            char sBuffer[MAXLENGTH_BUFFER];
+            strcopy(sBuffer, sizeof(sBuffer), sFormat);
+            Format(sBuffer, sizeof(sBuffer), "\x01%s", sBuffer);
+
+            ReplaceString(sBuffer, sizeof(sBuffer), "{3}", "\x01");
+            ReplaceString(sName, sizeof(sName), "{2}", "{2\x01}");
+            ReplaceString(sBuffer, sizeof(sBuffer), "{1}", sName);
+            ReplaceString(sBuffer, sizeof(sBuffer), "{2}", sMessage);
+            ReplaceString(sBuffer, sizeof(sBuffer), "{2\x01}", "{2}");
             if(bProto) {
-                PbSetInt(buf, "ent_idx", iSender);
-                PbSetBool(buf, "chat", bChat);
-                PbSetString(buf, "msg_name", sFormat);
-                PbAddString(buf, "params", sName);
-                PbAddString(buf, "params", sMessage);
+                PbSetInt(buf, "ent_idx", author);
+                PbSetBool(buf, "chat", false);
+                PbSetString(buf, "msg_name", sBuffer);
+                PbAddString(buf, "params", "");
+                PbAddString(buf, "params", "");
                 PbAddString(buf, "params", "");
                 PbAddString(buf, "params", "");
             } else {
-                char sBuffer[MAXLENGTH_BUFFER];
-                strcopy(sBuffer, sizeof(sBuffer), sFormat);
-                Format(sBuffer, sizeof(sBuffer), "\x01%s", sBuffer);
-
-                ReplaceString(sBuffer, sizeof(sBuffer), "{3}", "\x01");
-                ReplaceString(sName, sizeof(sName), "{2}", "{2\x01}");
-                ReplaceString(sBuffer, sizeof(sBuffer), "{1}", sName);
-                ReplaceString(sBuffer, sizeof(sBuffer), "{2}", sMessage);
-                ReplaceString(sBuffer, sizeof(sBuffer), "{2\x01}", "{2}");
-                
-                BfWriteByte(buf, iSender); // Message author
+                BfWriteByte(buf, author); // Message author
                 BfWriteByte(buf, bChat); // Chat message
                 BfWriteString(buf, sBuffer); // Message text
             }
