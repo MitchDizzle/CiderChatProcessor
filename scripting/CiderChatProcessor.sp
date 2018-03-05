@@ -2,7 +2,6 @@
 #pragma newdecls required
 #include <CiderChatProcessor>
 
-
 bool bNewMsg[MAXPLAYERS+1];
 
 //EngineVersion engineVersion;
@@ -147,7 +146,7 @@ public Action OnSayText2(UserMsg msg_id, BfRead msg, const int[] players, int pl
     }
 
     alRecipients.Push(GetClientUserId(iSender)); //Always add the sender.
-    for(int i = 1; i < MaxClients; i++) {
+    for(int i = 1; i <= MaxClients; i++) {
         if(!IsClientInGame(i) || IsFakeClient(i) || i == iSender) {
             continue;
         }
