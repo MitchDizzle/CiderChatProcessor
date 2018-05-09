@@ -132,6 +132,7 @@ public Action OnSayText2(UserMsg msg_id, BfRead msg, const int[] players, int pl
     bool bDeadChat = cDeadChat.BoolValue;
     int  iTeamChat = cTeamChat.IntValue;
     int  team = GetClientTeam(iSender);
+    bool alive = IsPlayerAlive(iSender);
 
     if(!bAllChat && ((iTeamChat == 1) ||
         (team == 2 && iTeamChat == 2) ||
@@ -146,19 +147,17 @@ public Action OnSayText2(UserMsg msg_id, BfRead msg, const int[] players, int pl
     }
 
     alRecipients.Push(GetClientUserId(iSender)); //Always add the sender.
+    int playerTeam;
     for(int i = 1; i <= MaxClients; i++) {
         if(!IsClientInGame(i) || IsFakeClient(i) || i == iSender) {
             continue;
         }
-        
-        if(!bAllChat && team != GetClientTeam(i)) {
+        playerTeam = GetClientTeam(i);
+        if(!bAllChat && team != playerTeam) {
             continue;
         }
-
-        if(!IsPlayerAlive(iSender)) {
-            if(!bDeadChat && IsPlayerAlive(i)) {
-                continue;
-            }
+        if(!bDeadChat && !alive && playerTeam > 1 && IsPlayerAlive(i)) {
+            continue;
         }
         alRecipients.Push(GetClientUserId(i));
     }
