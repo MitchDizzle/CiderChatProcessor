@@ -23,12 +23,12 @@ ConVar cTeamChat; //Team chat isn't seen by the other team.
                   // 2 - Team 2's team chat is seen by all players.
                   // 3 - Team 3's team chat is seen by all players.
 
-#define PLUGIN_VERSION "1.0.0"
+#define PLUGIN_VERSION "1.0.1"
 public Plugin myinfo = {
     name = "Cider Chat Processor",
     author = "Mitch",
     description = "A generic API for other plugins to capture chat messages",
-    version = "1.0.0",
+    version = PLUGIN_VERSION,
     url = "mtch.tech"
 };
 
@@ -71,9 +71,9 @@ public void OnConfigsExecuted() {
 
     UserMsg SayText2 = GetUserMessageId("SayText2");
     if (SayText2 != INVALID_MESSAGE_ID) {
-        HookUserMessage(SayText2, OnSayText2, true);LogMessage("Successfully hooked either SayText or SayText2 chat hooks.");
+        HookUserMessage(SayText2, OnSayText2, true);LogMessage("Successfully hooked either SayText2 chat hooks.");
     } else {
-        SetFailState("Error loading the plugin, both chat hooks are unavailable. (SayText & SayText2)");
+        SetFailState("Error loading the plugin, both chat hooks are unavailable. (SayText2)");
     }
 }
 
@@ -118,12 +118,11 @@ public Action OnSayText2(UserMsg msg_id, BfRead msg, const int[] players, int pl
             BfReadString(msg, sMessage, sizeof(sMessage));
         }
     }
-    //Find any weird colors that aren't supposed to be there.
-    char findString[6];
-    for(int cl = 1; cl < 17; cl++) {
-        Format(findString, sizeof(findString), "%c", cl);
-        ReplaceString(sMessage, sizeof(sMessage), findString, "");
-    }
+    //Copy the message without any of the color changing codes (1-16).
+    char sMessageCopy[MAXLENGTH_MESSAGE];
+    char sNameCopy[MAXLENGTH_NAME];
+    copyStringWithoutColors(sMessageCopy, sMessage, sizeof(sMessage));
+    copyStringWithoutColors(sNameCopy, sName, sizeof(sName));
 
     ArrayList alRecipients = CreateArray();
 
@@ -149,26 +148,22 @@ public Action OnSayText2(UserMsg msg_id, BfRead msg, const int[] players, int pl
     alRecipients.Push(GetClientUserId(iSender)); //Always add the sender.
     int playerTeam;
     for(int i = 1; i <= MaxClients; i++) {
-        if(!IsClientInGame(i) || IsFakeClient(i) || i == iSender) {
+        if(i == iSender || !IsClientInGame(i) || IsFakeClient(i)) {
             continue;
         }
-        playerTeam = GetClientTeam(i);
-        if(!bAllChat && team != playerTeam) {
-            continue;
-        }
-        if(!bDeadChat && !alive && playerTeam > 1 && IsPlayerAlive(i)) {
-            continue;
+        if(!bAllChat || !bDeadChat) {
+            playerTeam = GetClientTeam(i);
+            if(!bAllChat && team != playerTeam) {
+                continue;
+            }
+            if(!bDeadChat && !alive && playerTeam > 1 && IsPlayerAlive(i)) {
+                continue;
+            }
         }
         alRecipients.Push(GetClientUserId(i));
     }
 
     //We need to make copy of these strings for checks after the pre-forward has fired.
-    char sNameCopy[MAXLENGTH_NAME];
-    strcopy(sNameCopy, sizeof(sNameCopy), sName);
-
-    char sMessageCopy[MAXLENGTH_MESSAGE];
-    strcopy(sMessageCopy, sizeof(sMessageCopy), sMessage);
-
     char sFlagCopy[MAXLENGTH_FLAG];
     strcopy(sFlagCopy, sizeof(sFlagCopy), sFlag);
     int author = iSender;
@@ -182,12 +177,18 @@ public Action OnSayText2(UserMsg msg_id, BfRead msg, const int[] players, int pl
     int error = Call_Finish(iResults);
     if(error != SP_ERROR_NONE) {
         delete alRecipients;
-        ThrowNativeError(error, "Global Forward 'CCP_OnChatMessage' has failed to fire. [Error code: %i]", error);
+        ThrowNativeError(error, "Global Forward 'CCP_OnChatMessagePre' has failed to fire. [Error code: %i]", error);
         return Plugin_Continue;
     }
     if(iResults == Plugin_Stop) {
         delete alRecipients;
-        return Plugin_Continue;
+        return Plugin_Stop;
+    }
+    if(alRecipients == null || alRecipients.Length == 0) {
+        //Weird way to stop the message, this should be an error!
+        LogError("alRecipients was returned null or is empty, this may indicate a bug within the plugin using the 'CCP_OnChatMessage' forward!");
+        delete alRecipients;
+        return Plugin_Stop;
     }
 
     Call_StartForward(fwOnChatMessage);
@@ -195,7 +196,7 @@ public Action OnSayText2(UserMsg msg_id, BfRead msg, const int[] players, int pl
     Call_PushCell(alRecipients);
     Call_PushStringEx(sFlag, sizeof(sFlag), SM_PARAM_STRING_UTF8|SM_PARAM_STRING_COPY, SM_PARAM_COPYBACK);
     Call_PushStringEx(sName, sizeof(sName), SM_PARAM_STRING_UTF8|SM_PARAM_STRING_COPY, SM_PARAM_COPYBACK);
-    Call_PushStringEx(sMessage, sizeof(sMessage), SM_PARAM_STRING_UTF8|SM_PARAM_STRING_COPY, SM_PARAM_COPYBACK);
+    Call_PushStringEx(sMessageCopy, sizeof(sMessageCopy), SM_PARAM_STRING_UTF8|SM_PARAM_STRING_COPY, SM_PARAM_COPYBACK);
 
     error = Call_Finish(iResults);
     if(error != SP_ERROR_NONE) {
@@ -205,7 +206,13 @@ public Action OnSayText2(UserMsg msg_id, BfRead msg, const int[] players, int pl
     }
     if(iResults == Plugin_Stop) {
         delete alRecipients;
-        return Plugin_Continue;
+        return Plugin_Stop;
+    }
+    if(alRecipients == null || alRecipients.Length == 0) {
+        //Weird way to stop the message, this should be an error!
+        LogError("alRecipients was returned null or is empty, this may indicate a bug within the plugin using the 'CCP_OnChatMessage' forward!");
+        delete alRecipients;
+        return Plugin_Stop;
     }
     
     bool replaceAuthor = false;
@@ -222,7 +229,7 @@ public Action OnSayText2(UserMsg msg_id, BfRead msg, const int[] players, int pl
     Handle hPack = CreateDataPack();
     WritePackCell(hPack, GetClientUserId(iSender));
     WritePackString(hPack, sName);
-    WritePackString(hPack, sMessage);
+    WritePackString(hPack, sMessageCopy);
     WritePackString(hPack, sFlag);
     WritePackCell(hPack, alRecipients);
     WritePackCell(hPack, replaceAuthor);
@@ -290,17 +297,52 @@ public void Frame_OnChatMessage_SayText2(DataPack data) {
             }
         }
         if(clientCount != 0) {
-            Handle buf = StartMessage("SayText2", printToClients, clientCount, USERMSG_RELIABLE|USERMSG_BLOCKHOOKS);
             //Handle buf = StartMessageOne("SayText2", client, USERMSG_RELIABLE|USERMSG_BLOCKHOOKS);
             char sBuffer[MAXLENGTH_BUFFER];
-            strcopy(sBuffer, sizeof(sBuffer), sFormat);
-            Format(sBuffer, sizeof(sBuffer), "\x01%s", sBuffer);
-
-            ReplaceString(sBuffer, sizeof(sBuffer), "{3}", "\x01");
+            //strcopy(sBuffer, sizeof(sBuffer), sFormat);
+            /*ReplaceString(sBuffer, sizeof(sBuffer), "{3}", "\x01");
             ReplaceString(sName, sizeof(sName), "{2}", "{2\x01}");
             ReplaceString(sBuffer, sizeof(sBuffer), "{1}", sName);
             ReplaceString(sBuffer, sizeof(sBuffer), "{2}", sMessage);
-            ReplaceString(sBuffer, sizeof(sBuffer), "{2\x01}", "{2}");
+            ReplaceString(sBuffer, sizeof(sBuffer), "{2\x01}", "{2}");*/
+            //Instead of abusing ReplaceString we should just copy format in bits.
+            for(int pos,bpos = 0; pos < strlen(sFormat); pos++) {
+                if(sFormat[pos] == '\0') {
+                    break;
+                }
+                if(sFormat[pos] == '{' && sFormat[pos+2] == '}') {
+                    //We found a variable, copy it nicely.
+                    pos++; //This should be the integer placement.
+                    switch(sFormat[pos]) {
+                        case '1': { //Name Replacement.
+                            for(int npos = 0; npos < strlen(sName); npos++) {
+                                if(sName[npos] != '\0') {
+                                    sBuffer[bpos] = sName[npos];
+                                    bpos++;
+                                }
+                            }
+                        }
+                        case '2': { //Message Replacement.
+                            for(int mpos = 0; mpos < strlen(sMessage); mpos++) {
+                                if(sMessage[mpos] != '\0') {
+                                    sBuffer[bpos] = sMessage[mpos];
+                                    bpos++;
+                                }
+                            }
+                        }
+                        case '3': {
+                            sBuffer[bpos] = '\1'; //\x01 replacement.
+                            bpos++;
+                        }
+                    }
+                    pos++; //Set the post to the ending bracket.
+                } else {
+                    sBuffer[bpos] = sFormat[pos];
+                    bpos++;
+                }
+            }
+
+            Handle buf = StartMessage("SayText2", printToClients, clientCount, USERMSG_RELIABLE|USERMSG_BLOCKHOOKS);
             if(bProto) {
                 PbSetInt(buf, "ent_idx", author);
                 PbSetBool(buf, "chat", false);
@@ -357,4 +399,16 @@ public bool GenerateMessageFormats(const char[] config, const char[] game) {
     LogError("Error parsing the flag message formatting config for game '%s', please verify its integrity.", game);
     delete kv;
     return false;
+}
+
+stock void copyStringWithoutColors(char[] targetString, char[] copyString, int size) {
+    for(int pos,npos = 0; pos < size; pos++) {
+        targetString[npos] = copyString[pos]; //Straight copy.
+        if(copyString[pos] == '\0') {
+            break;
+        }
+        if(copyString[pos] >= 17) {
+            npos++;
+        }
+    }
 }
