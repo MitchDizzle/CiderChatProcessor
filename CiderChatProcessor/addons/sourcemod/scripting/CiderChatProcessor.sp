@@ -23,7 +23,7 @@ ConVar cTeamChat; //Team chat isn't seen by the other team.
                   // 2 - Team 2's team chat is seen by all players.
                   // 3 - Team 3's team chat is seen by all players.
 
-#define PLUGIN_VERSION "1.0.1"
+#define PLUGIN_VERSION "1.0.3"
 public Plugin myinfo = {
     name = "Cider Chat Processor",
     author = "Mitch",
@@ -33,18 +33,18 @@ public Plugin myinfo = {
 };
 
 public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max) {
-    RegPluginLibrary("CiderChatProcessor");
 
     fwOnChatMessagePre = CreateGlobalForward("CCP_OnChatMessagePre", ET_Hook, Param_CellByRef, Param_Cell, Param_String);
     fwOnChatMessage = CreateGlobalForward("CCP_OnChatMessage", ET_Hook, Param_CellByRef, Param_Cell, Param_String, Param_String, Param_String);
     fwOnChatMessagePost = CreateGlobalForward("CCP_OnChatMessagePost", ET_Ignore, Param_Cell, Param_Cell, Param_String, Param_String, Param_String, Param_String);
 
+    RegPluginLibrary("CiderChatProcessor");
     //engineVersion = GetEngineVersion();
     return APLRes_Success;
 }
 
 public void OnPluginStart() {
-    CreateConVar("sm_ciderchatprocessor_version", PLUGIN_VERSION, "A generic API for other plugins to capture chat messages", FCVAR_REPLICATED | FCVAR_NOTIFY | FCVAR_SPONLY | FCVAR_DONTRECORD);
+    CreateConVar("sm_ciderchatprocessor_version", PLUGIN_VERSION, "A generic API for other plugins to capture chat messages", FCVAR_DONTRECORD);
     
     cEnabled = CreateConVar("sm_ccp_enable", "1", "Enable Cider Chat Processor");
     cConfig = CreateConVar("sm_ccp_config", "configs/chat_processor.cfg", "Name of the message formats config.");
@@ -282,7 +282,7 @@ public void Frame_OnChatMessage_SayText2(DataPack data) {
     
     if(iResults != Plugin_Changed) {
         Format(sMessage, sizeof(sMessage), "\x01%s", sMessage);
-        Format(sName, sizeof(sName), "\x03%s", sName);
+        Format(sName, sizeof(sName), "\x03%s\x01", sName);
     }
     
     //ReplaceString(sMessage, sizeof(sMessage), "%", "%%"); //Annoying fix.
@@ -297,16 +297,9 @@ public void Frame_OnChatMessage_SayText2(DataPack data) {
             }
         }
         if(clientCount != 0) {
-            //Handle buf = StartMessageOne("SayText2", client, USERMSG_RELIABLE|USERMSG_BLOCKHOOKS);
-            char sBuffer[MAXLENGTH_BUFFER];
-            //strcopy(sBuffer, sizeof(sBuffer), sFormat);
-            /*ReplaceString(sBuffer, sizeof(sBuffer), "{3}", "\x01");
-            ReplaceString(sName, sizeof(sName), "{2}", "{2\x01}");
-            ReplaceString(sBuffer, sizeof(sBuffer), "{1}", sName);
-            ReplaceString(sBuffer, sizeof(sBuffer), "{2}", sMessage);
-            ReplaceString(sBuffer, sizeof(sBuffer), "{2\x01}", "{2}");*/
-            //Instead of abusing ReplaceString we should just copy format in bits.
-            for(int pos,bpos = 0; pos < strlen(sFormat); pos++) {
+            char sBuffer[MAXLENGTH_BUFFER] = "\1";
+            int bpos = 1;
+            for(int pos = 0; pos < strlen(sFormat); pos++) {
                 if(sFormat[pos] == '\0') {
                     break;
                 }
